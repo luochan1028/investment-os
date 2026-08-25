@@ -34,9 +34,9 @@ logging.basicConfig(
 logger = logging.getLogger("portfolio-risk")
 
 
-def _build_positions() -> list[dict]:
+def _build_positions(user_id: int = 1) -> list[dict]:
     """拉取行情并构造 positions 列表（holding + pnl + current_price）"""
-    holdings = get_holdings()
+    holdings = get_holdings(user_id=user_id)
     positions = []
     for h in holdings:
         q = fetch_quote(h["symbol"])
@@ -49,17 +49,18 @@ def _build_positions() -> list[dict]:
     return positions
 
 
-def scan_once():
+def scan_once(user_id: int = 1):
     """执行一次风控扫描：止损 → 集中度 → 组合回撤"""
-    positions = _build_positions()
+    positions = _build_positions(user_id=user_id)
     if not positions:
         logger.warning("⚠️ 无可扫描持仓")
-        return
+        return {"ok": True, "new_alerts": 0, "positions": 0, "msg": "无持仓"}
+    alerts_emitted = 0
 
     # 1. 单标的止损
     for p in positions:
         if p["pnl_pct"] <= -Config.STOP_LOSS_PCT:
-            emit_alert(
+            if emit_alert(
                 alert_type="stop_loss",
                 level="high",
                 title=f"{p['symbol']} 触及止损线",
@@ -69,7 +70,8 @@ def scan_once():
                     f"持仓市值 {p['market_value']:.2f}，浮亏 {p['pnl']:.2f}"
                 ),
                 symbol=p["symbol"],
-            )
+            ):
+                alerts_emitted += 1
 
     # 2. 组合层
     portfolio = compute_portfolio(positions)
@@ -81,11 +83,12 @@ def scan_once():
         total_cost=portfolio["total_cost"],
         cash=0.0,
         note=f"{len(positions)} holdings",
+        user_id=user_id,
     )
 
     for sym, weight in concentration["by_symbol"].items():
         if weight >= Config.CONCENTRATION_PCT:
-            emit_alert(
+            if emit_alert(
                 alert_type="concentration",
                 level="medium",
                 title=f"{sym} 集中度过高",
@@ -94,13 +97,14 @@ def scan_once():
                     f"（阈值 {Config.CONCENTRATION_PCT*100:.0f}%）"
                 ),
                 symbol=sym,
-            )
+            ):
+                alerts_emitted += 1
 
     # 3. 组合回撤（基于净值序列的真实回撤，替代浮亏代理）
-    dd_info = get_portfolio_drawdown(days=90)
+    dd_info = get_portfolio_drawdown(days=90, user_id=user_id)
     real_dd = dd_info.get("max_drawdown")
     if real_dd is not None and real_dd >= Config.PORTFOLIO_DD_PCT:
-        emit_alert(
+        if emit_alert(
             alert_type="portfolio_drawdown",
             level="high",
             title="组合回撤触及阈值",
@@ -111,10 +115,11 @@ def scan_once():
                 f"当前回撤 {dd_info['current_drawdown']*100:.2f}%\n"
                 f"总市值 {portfolio['total_market']:.2f}，总浮亏 {portfolio['total_pnl']:.2f}"
             ),
-        )
+        ):
+            alerts_emitted += 1
     elif real_dd is None and portfolio["total_pnl_pct"] <= -Config.PORTFOLIO_DD_PCT:
         # 净值序列不足2天时，降级用浮亏代理
-        emit_alert(
+        if emit_alert(
             alert_type="portfolio_drawdown",
             level="high",
             title="组合浮亏触及回撤阈值",
@@ -123,9 +128,18 @@ def scan_once():
                 f"（阈值 -{Config.PORTFOLIO_DD_PCT*100:.0f}%）\n"
                 f"注：净值序列不足，暂用浮亏代理。累计净值后将切换为真实回撤。"
             ),
-        )
+        ):
+            alerts_emitted += 1
 
     _log_scan_summary(positions, portfolio)
+    return {
+        "ok": True,
+        "new_alerts": alerts_emitted,
+        "positions": len(positions),
+        "msg": "扫描完成",
+        "total_pnl": round(portfolio["total_pnl"], 2),
+        "total_pnl_pct": round(portfolio["total_pnl_pct"] * 100, 2),
+    }
 
 
 def _log_scan_summary(positions: list[dict], portfolio: dict):

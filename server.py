@@ -2312,8 +2312,8 @@ def api_scan(user_id: int = 1):
     """触发风控扫描（支持用户隔离）"""
     from main import scan_once
     try:
-        scan_once(user_id=user_id)
-        return {"ok": True, "msg": "扫描完成", "user_id": user_id}
+        result = scan_once(user_id=user_id) or {"msg": "扫描完成"}
+        return {"ok": True, "user_id": user_id, **result}
     except Exception as e:
         raise HTTPException(500, str(e))
 
