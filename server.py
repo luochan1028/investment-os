@@ -1986,8 +1986,24 @@ def api_ai_screener(sector: str = "all", top_n: int = 10, min_score: int = 60):
         })
     # 按综合分排序
     candidates.sort(key=lambda x: -x["final_score"])
-    return {
-        "candidates": candidates[:top_n],
+    # 字段别名映射（前端兼容层：stocks / company / total_score / val_score / qual_score / mom_score / signal）
+    alias_candidates = []
+    for c in candidates[:top_n]:
+        s = c.get("scores", {})
+        rating = c.get("rating", "")
+        signal = "买入" if rating in ("强烈推荐", "推荐") else "观望" if rating == "关注" else "卖出"
+        alias_candidates.append({
+            **c,
+            "company": c.get("name"),
+            "total_score": c.get("final_score"),
+            "val_score": s.get("volatility", 0),
+            "qual_score": s.get("technical", 0),
+            "mom_score": s.get("momentum", 0),
+            "signal": signal,
+        })
+    result = {
+        "candidates": alias_candidates,
+        "stocks": alias_candidates,   # ← 前端期望顶层字段名
         "total_scanned": len(_AI_STOCK_POOL),
         "total_qualified": len(candidates),
         "filters": {"sector": sector, "min_score": min_score, "top_n": top_n},
@@ -2000,6 +2016,24 @@ def api_ai_screener(sector: str = "all", top_n: int = 10, min_score: int = 60):
             {"key":"sentiment","name":"情绪面","weight":"5%","desc":"市场热度"},
         ],
     }
+    return result
+
+
+# =========================================
+# 🔗 路径别名兼容（前端重构时未同步更新的旧路径）
+# =========================================
+@app.get("/api/screener")
+def api_screener_alias(sector: str = "all", top: int = 10, min_score: int = 60,
+                       top_n: int = None):
+    """兼容前端旧路径 /api/screener?sector=X&min_score=Y&top=Z（参数名top别名top_n）"""
+    _top = top_n if top_n is not None else top
+    return api_ai_screener(sector=sector, top_n=_top, min_score=min_score)
+
+
+@app.post("/api/alerts/scan")
+def api_alerts_scan_alias(user_id: int = 1):
+    """兼容前端旧路径 /api/alerts/scan → 实际 /api/scan"""
+    return api_scan(user_id=user_id)
 
 
 # ==================== 风控决策层 ====================

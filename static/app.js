@@ -1893,8 +1893,8 @@ async function rmH(sym) {
 function showRebalance() { switchTab('pf','rebalance'); }
 async function triggerScan() {
     try { showToast('扫描中...');
-        const d = await fetchWithUser('/api/alerts/scan', {method:'POST'});
-        showToast(`扫描完成，新增 ${d.new_alerts||0} 条告警`);
+        const d = await fetchWithUser('/api/scan', {method:'POST'});
+        showToast(`扫描完成，新增 ${d.new_alerts||d.ok?0:0} 条告警`);
     } catch(e){ showToast(e.message, true); }
 }
 function pushHighImpact() { pushHighSentiment(); }
