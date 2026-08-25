@@ -305,48 +305,49 @@
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="brand">
-                <div class="brand-icon">OS</div>
+                <div class="brand-icon">α</div>
                 <div>
-                    <div class="brand-title">投资研究 OS</div>
-                    <div class="brand-subtitle">个人 AI 投研操作系统</div>
+                    <div class="brand-title">Alpha Research OS</div>
+                    <div class="brand-subtitle">AI 投研决策系统</div>
                 </div>
             </div>
         </div>
         <div class="user-panel">
-            <div class="user-panel-label">当前用户</div>
+            <div class="user-panel-label">当前账户</div>
             <select id="userSelect" onchange="switchUser(this.value)" class="user-select">
                 <option value="1">default</option>
             </select>
-            <button onclick="createUser()" class="user-add-btn">+ 添加用户</button>
+            <button onclick="createUser()" class="user-add-btn">+ 添加账户</button>
         </div>
         <div class="nav-group">
-            <div class="nav-item active" data-route="overview">
-                <span class="nav-icon">&#9638;</span>总览
+            <div class="nav-group-title">决策中心</div>
+            <div class="nav-item active" data-route="dashboard">
+                <span class="nav-icon" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-radius:6px;font-size:13px">🎯</span>驾驶舱
             </div>
-        </div>
-        <div class="nav-group">
-            <div class="nav-group-title">核心模块</div>
-            <div class="nav-item" data-route="market-intel">
-                <span class="nav-icon">&#9733;</span>市场情报
+            <div class="nav-item" data-route="market">
+                <span class="nav-icon">📡</span>市场监控
             </div>
-            <div class="nav-item" data-route="analysis">
-                <span class="nav-icon">&#9881;</span>智能分析
+            <div class="nav-item" data-route="research">
+                <span class="nav-icon">🧠</span>深度研究
             </div>
-            <div class="nav-item" data-route="risk">
-                <span class="nav-icon">&#9733;</span>持仓与风控
-            </div>
-            <div class="nav-item" data-route="knowledge">
-                <span class="nav-icon">&#9776;</span>知识与复盘
+            <div class="nav-item" data-route="portfolio">
+                <span class="nav-icon">💼</span>投资决策
             </div>
         </div>
         <div class="nav-group">
-            <div class="nav-group-title">专题研究</div>
+            <div class="nav-group-title">知识与验证</div>
             <div class="nav-item" data-route="crisis">
-                <span class="nav-icon">&#9888;</span>金融危机专题
+                <span class="nav-icon">📚</span>危机知识库
+            </div>
+            <div class="nav-item" data-route="review">
+                <span class="nav-icon">📖</span>复盘验证
+            </div>
+            <div class="nav-item" data-route="settings">
+                <span class="nav-icon">⚙️</span>系统设置
             </div>
         </div>
         <div class="sidebar-footer">
-            v2.0 &middot; AI 驱动
+            v3.0 &middot; 决策优先
         </div>
     </div>
 
@@ -356,6 +357,6 @@
 
     <div class="toast" id="toast"></div>
     <div class="modal" id="modal"></div>
-    <script src="/static/app.js?v=11"></script>
+    <script src="/static/app.js?v=12"></script>
 </body>
 </html>
