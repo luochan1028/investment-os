@@ -16,7 +16,7 @@ from datetime import datetime
 from config import Config
 from store import (
     init_db, add_holding, remove_holding, get_holdings,
-    save_price, get_price_history,
+    save_price,
     save_nav_snapshot, get_portfolio_drawdown,
 )
 from pricing import fetch_quote, fetch_history
