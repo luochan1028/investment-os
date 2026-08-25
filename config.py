@@ -47,7 +47,7 @@ class Config:
 
     # Web 服务
     WEB_HOST: str = os.getenv("WEB_HOST", "0.0.0.0")
-    WEB_PORT: int = int(os.getenv("WEB_PORT", "8088"))
+    WEB_PORT: int = int(os.getenv("WEB_PORT", "8188"))
 
     # CORS 跨域（逗号分隔，* 表示允许所有）
     CORS_ORIGINS: list = [

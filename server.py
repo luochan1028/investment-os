@@ -11,7 +11,7 @@
 - 配置校验
 
 用法:
-    python server.py --port 8088
+    python server.py --port 8188
 """
 import argparse
 import logging
@@ -2822,7 +2822,7 @@ if STATIC_DIR.exists():
 def main():
     parser = argparse.ArgumentParser(description="投资研究操作系统")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8088)
+    parser.add_argument("--port", type=int, default=8188)
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
 

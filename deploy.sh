@@ -18,7 +18,7 @@ After=network.target
 Type=simple
 WorkingDirectory=$(pwd)
 EnvironmentFile=$(pwd)/.env
-ExecStart=$(pwd)/venv/bin/python $(pwd)/server.py --port 8088
+ExecStart=$(pwd)/venv/bin/python $(pwd)/server.py --port 8188
 Restart=always
 [Install]
 WantedBy=multi-user.target
@@ -29,5 +29,5 @@ sleep 2
 systemctl status investment-os --no-pager -l | head -15
 echo ""
 echo "=== 部署完成 ==="
-echo "访问: http://$(hostname -I | awk '{print $1}'):8088"
+echo "访问: http://$(hostname -I | awk '{print $1}'):8188"
 echo "日志: journalctl -u investment-os -f"

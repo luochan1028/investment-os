@@ -18,7 +18,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-BASE_URL = "http://127.0.0.1:8088"
+BASE_URL = "http://127.0.0.1:8188"
 TIMEOUT = 15
 
 # 确保能导入项目模块
@@ -30,7 +30,7 @@ def wait_for_server(max_wait=30):
     start = time.time()
     while time.time() - start < max_wait:
         try:
-            with socket.create_connection(("127.0.0.1", 8088), timeout=1):
+            with socket.create_connection(("127.0.0.1", 8188), timeout=1):
                 return True
         except (socket.timeout, ConnectionRefusedError, OSError):
             time.sleep(0.5)
@@ -57,7 +57,7 @@ def fetch_url(url, method="GET", body=None):
 
 def test_server_available():
     """测试服务器是否可访问"""
-    assert wait_for_server(30), "Server not available on port 8088"
+    assert wait_for_server(30), "Server not available on port 8188"
     status, content, _ = fetch_url(f"{BASE_URL}/api/users")
     assert status == 200, f"Server health check failed: {status}"
     print("[OK] Server is available")
