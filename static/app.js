@@ -1333,25 +1333,55 @@ route('review', async () => {
         review: async c => {
             const d = await fetchWithUser('/api/review');
             const t = await fetchWithUser('/api/trades');
-            c.innerHTML = `
-            <div class="stats-grid">${statsGrid([
+            // 拆出中间变量，避免多层模板嵌套的语法解析歧义（手机端 JS 引擎更敏感）
+            const tradeRows = (t.trades||[]).map(x => {
+                const sideCls = x.side === 'buy' ? 'tag-green' : 'tag-red';
+                const oc = x.outcome || '-';
+                const ocCls = (oc || '').startsWith('+') ? 'up-text' : 'down-text';
+                return '<tr>' +
+                    '<td><span class="tag tag-blue">' + x.symbol + '</span></td>' +
+                    '<td><span class="tag ' + sideCls + '">' + x.side + '</span></td>' +
+                    '<td>' + fmt(x.price) + '</td>' +
+                    '<td style="color:var(--text-muted);font-size:12px">' + x.reason + '</td>' +
+                    '<td>' + x.trade_date + '</td>' +
+                    '<td class="' + ocCls + '" style="font-weight:700">' + oc + '</td>' +
+                    '</tr>';
+            });
+            const tradeTableHtml = table(['标的','方向','价格','理由','日期','结果'], tradeRows, '暂无交易记录');
+
+            // 常见错误模式
+            let mistakesHtml = '<div class="empty"><span class="empty-icon">-</span>暂无</div>';
+            if ((d.common_mistakes||[]).length) {
+                mistakesHtml = d.common_mistakes.map(function(m){
+                    return '<div class="alert-item high"><div class="alert-level">!</div><div>' +
+                        '<div class="alert-title">' + m.pattern + ' (' + m.frequency + '次)</div>' +
+                        '<div class="alert-detail">' + m.example + '</div>' +
+                        '</div></div>';
+                }).join('');
+            }
+            // 最佳实践模式
+            let bestHtml = '<div class="empty"><span class="empty-icon">-</span>暂无</div>';
+            if ((d.best_practices||[]).length) {
+                bestHtml = d.best_practices.map(function(m){
+                    return '<div class="alert-item medium"><div class="alert-level">+</div><div>' +
+                        '<div class="alert-title">' + m.pattern + ' (' + m.frequency + '次)</div>' +
+                        '<div class="alert-detail">' + m.example + '</div>' +
+                        '</div></div>';
+                }).join('');
+            }
+
+            c.innerHTML = '' +
+            '<div class="stats-grid">' + statsGrid([
                 {label:'总交易',value:d.total_trades},
-                {label:'胜率',value:`${d.win_rate}%`,cls:d.win_rate>=50?'up':'down'},
+                {label:'胜率',value:d.win_rate + '%',cls:d.win_rate>=50?'up':'down'},
                 {label:'盈利次数',value:d.wins,cls:'up'},
                 {label:'亏损次数',value:d.losses,cls:'down'},
-            ])}</div>
-            <div class="grid-2" style="margin:20px 0">
-                <div class="card"><div class="card-title">⚠️ 常见错误模式</div>${(d.common_mistakes||[]).length?d.common_mistakes.map(m=>`<div class="alert-item high"><div class="alert-level">!</div><div><div class="alert-title">${m.pattern} (${m.frequency}次)</div><div class="alert-detail">${m.example}</div></div></div>`).join(''):'<div class="empty"><span class="empty-icon">-</span>暂无</div>'}</div>
-                <div class="card"><div class="card-title">✅ 最佳实践模式</div>${(d.best_practices||[]).length?d.best_practices.map(m=>`<div class="alert-item medium"><div class="alert-level">+</div><div><div class="alert-title">${m.pattern} (${m.frequency}次)</div><div class="alert-detail">${m.example}</div></div></div>`).join(''):'<div class="empty"><span class="empty-icon">-</span>暂无</div>'}</div>
-            </div>
-            ${table(['标的','方向','价格','理由','日期','结果'],(t.trades||[]).map(x=>`<tr>
-                <td><span class="tag tag-blue">${x.symbol}</span></td>
-                <td><span class="tag ${x.side==='buy'?'tag-green':'tag-red'}">${x.side}</span></td>
-                <td>${fmt(x.price)}</td>
-                <td style="color:var(--text-muted);font-size:12px">${x.reason}</td>
-                <td>${x.trade_date}</td>
-                <td class="${(x.outcome||'').startsWith('+')?'up-text':'down-text'}" style="font-weight:700">${x.outcome||'-'}</td>
-            </tr>`), '暂无交易记录'}`;
+            ]) + '</div>' +
+            '<div class="grid-2" style="margin:20px 0">' +
+                '<div class="card"><div class="card-title">⚠️ 常见错误模式</div>' + mistakesHtml + '</div>' +
+                '<div class="card"><div class="card-title">✅ 最佳实践模式</div>' + bestHtml + '</div>' +
+            '</div>' +
+            tradeTableHtml;
         },
         backtest: async c => {
             const d = await fetchJSON('/api/backtest');
