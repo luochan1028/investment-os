@@ -477,7 +477,7 @@ def _seed_demo_data():
             ("CathieDWood", "Bitcoin ETF inflows hit record", "medium", "加密"),
             ("Powell", "Fed holds rates steady, dovish tone", "high", "美联储"),
         ]:
-            save_tweet(u, t, "", (datetime.now() - timedelta(hours=random.randint(1, 48))).strftime("%Y-%m-%d %H:%M:%S"),
+            save_tweet(u, t, "", (datetime.now() - timedelta(hours=__import__('random').randint(1, 48))).strftime("%Y-%m-%d %H:%M:%S"),
                        lvl, cat, 1)
 
     # 财报示例
