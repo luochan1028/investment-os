@@ -67,6 +67,32 @@ _rate_limit_store = defaultdict(lambda: {"count": 0, "window": 0})
 _rate_lock = Lock()
 RATE_LIMIT_PER_MIN = 120
 
+# ==================== 宏观经济数据后台推送线程 ====================
+
+_macro_push_stop_event = Event()
+_macro_push_last_result = {"checked": 0, "pushed": 0, "skipped": 0, "last_run": None, "errors": []}
+MACRO_PUSH_INTERVAL = int(os.getenv("MACRO_PUSH_INTERVAL", "300"))  # 默认5分钟
+
+
+def _macro_push_loop():
+    """后台线程：定时检查宏观事件倒计时，到达提醒窗口时推送微信"""
+    logger.info(f"宏观经济数据推送线程已启动，检查间隔 {MACRO_PUSH_INTERVAL}秒")
+    _macro_push_stop_event.wait(15)
+    while not _macro_push_stop_event.is_set():
+        try:
+            from data_sources.macro_push import check_and_push
+            result = check_and_push()
+            _macro_push_last_result.update(result)
+            _macro_push_last_result["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if result.get("pushed"):
+                logger.info(f"宏观推送: {result['pushed']}条已推送, {result['skipped']}条跳过")
+        except Exception as e:
+            logger.error(f"宏观推送检查失败: {e}")
+            _macro_push_last_result["errors"] = [str(e)]
+        _macro_push_stop_event.wait(MACRO_PUSH_INTERVAL)
+    logger.info("宏观推送线程已停止")
+
+
 # ==================== X 舆情后台刷新线程 ====================
 
 _x_monitor_stop_event = Event()
@@ -112,10 +138,14 @@ async def lifespan(app: FastAPI):
     # 启动X舆情后台监控线程
     x_thread = Thread(target=_x_monitor_loop, daemon=True, name="x-monitor")
     x_thread.start()
+    # 启动宏观经济数据推送线程
+    macro_thread = Thread(target=_macro_push_loop, daemon=True, name="macro-push")
+    macro_thread.start()
     logger.info(f"启动完成 - 持仓: {len(get_holdings())}, 推送: {'启用' if Config.PUSH_ENABLED else '未配置'}, X账号: {len(get_x_accounts())}")
     yield
     logger.info("正在关闭服务...")
     _x_monitor_stop_event.set()
+    _macro_push_stop_event.set()
     clear_cache()
     logger.info("服务已关闭")
 
@@ -866,6 +896,34 @@ def api_macro():
     """
     from data_sources.macro_calendar import get_macro_calendar
     return get_macro_calendar(lookahead_days=60)
+
+
+@app.get("/api/macro/push-status")
+def api_macro_push_status():
+    """获取宏观推送后台线程状态"""
+    return {
+        "running": not _macro_push_stop_event.is_set(),
+        "last_result": _macro_push_last_result,
+        "interval_seconds": MACRO_PUSH_INTERVAL,
+        "remind_intervals": [1440, 60, 15],
+    }
+
+
+@app.post("/api/macro/push-check")
+def api_macro_push_check():
+    """手动触发一次宏观倒计时检查"""
+    from data_sources.macro_push import check_and_push
+    result = check_and_push()
+    _macro_push_last_result.update(result)
+    _macro_push_last_result["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return result
+
+
+@app.post("/api/macro/push-weekly")
+def api_macro_push_weekly():
+    """手动推送本周经济数据日历到微信"""
+    from data_sources.macro_push import push_weekly_calendar
+    return push_weekly_calendar()
 
 
 @app.get("/api/central-bank/calendar")
@@ -2594,6 +2652,165 @@ def api_backtest():
 @app.get("/api/config")
 def api_config():
     return Config.summary()
+
+
+# ==================== 金融危机专题 ====================
+
+@app.get("/api/crisis/list")
+def api_crisis_list():
+    """获取所有金融危机列表"""
+    from data_sources.crisis_tracker import get_all_crisis_data
+    return {"crises": get_all_crisis_data()}
+
+
+@app.get("/api/crisis/compare/2008")
+def api_crisis_compare_2008():
+    """当前市场指标与2008危机对比"""
+    from data_sources.crisis_tracker import get_crisis_comparison
+    return get_crisis_comparison()
+
+
+@app.get("/api/crisis/{crisis_id}")
+def api_crisis_detail(crisis_id: str):
+    """获取单个危机详情"""
+    from data_sources.crisis_tracker import get_crisis_detail
+    data = get_crisis_detail(crisis_id)
+    if "error" in data:
+        raise HTTPException(404, data["error"])
+    return data
+
+
+@app.get("/api/crisis/{crisis_id}/timeline")
+def api_crisis_timeline(crisis_id: str):
+    """获取危机事件时间线"""
+    from data_sources.crisis_tracker import get_crisis_timeline
+    return get_crisis_timeline(crisis_id)
+
+
+# ---- 模块1: 历史危机全景复盘 ----
+
+@app.get("/api/crisis/{crisis_id}/macro")
+def api_crisis_macro(crisis_id: str):
+    """获取危机的宏观经济指标时间序列"""
+    from data_sources.crisis_tracker import get_crisis_macro_indicators
+    return get_crisis_macro_indicators(crisis_id)
+
+
+@app.get("/api/crisis/{crisis_id}/institutions")
+def api_crisis_institutions(crisis_id: str):
+    """获取危机中的金融机构演变"""
+    from data_sources.crisis_tracker import get_institution_events
+    return get_institution_events(crisis_id)
+
+
+@app.get("/api/crisis/{crisis_id}/multi-timeline")
+def api_crisis_multi_timeline(crisis_id: str):
+    """获取多维时间轴"""
+    from data_sources.crisis_tracker import get_multi_dimensional_timeline
+    return get_multi_dimensional_timeline(crisis_id)
+
+
+# ---- 模块2: 现状对标与风险监测 ----
+
+@app.get("/api/crisis/risk/yield-curve")
+def api_risk_yield_curve():
+    """收益率曲线监测"""
+    from data_sources.risk_monitor import get_yield_curve_status
+    return get_yield_curve_status()
+
+
+@app.get("/api/crisis/risk/liquidity")
+def api_risk_liquidity():
+    """流动性监测"""
+    from data_sources.risk_monitor import get_liquidity_status
+    return get_liquidity_status()
+
+
+@app.get("/api/crisis/risk/valuation")
+def api_risk_valuation():
+    """估值与杠杆预警"""
+    from data_sources.risk_monitor import get_valuation_warning
+    return get_valuation_warning()
+
+
+@app.get("/api/crisis/risk/cross-cycle")
+def api_risk_cross_cycle():
+    """跨周期对比"""
+    from data_sources.risk_monitor import get_cross_cycle_comparison
+    return get_cross_cycle_comparison()
+
+
+@app.get("/api/crisis/risk/dashboard")
+def api_risk_dashboard():
+    """风险总览看板"""
+    from data_sources.risk_monitor import get_risk_dashboard
+    return get_risk_dashboard()
+
+
+# ---- 模块3: 危机恢复与政策推演 ----
+
+@app.get("/api/crisis/policy/toolbox")
+def api_policy_toolbox():
+    """政策工具箱"""
+    from data_sources.policy_simulator import get_policy_toolbox
+    return get_policy_toolbox()
+
+
+@app.post("/api/crisis/policy/simulate")
+def api_policy_simulate(body: dict):
+    """政策模拟"""
+    from data_sources.policy_simulator import simulate_policies
+    selected_tools = body.get("selected_tools", [])
+    severity = body.get("severity", "moderate")
+    return simulate_policies(selected_tools, severity)
+
+
+@app.get("/api/crisis/transmission/graph")
+def api_transmission_graph():
+    """风险传导图谱"""
+    from data_sources.policy_simulator import get_transmission_graph
+    return get_transmission_graph()
+
+
+@app.get("/api/crisis/recovery/dashboard")
+def api_recovery_dashboard():
+    """恢复进程看板"""
+    from data_sources.policy_simulator import get_recovery_dashboard
+    return get_recovery_dashboard()
+
+
+@app.get("/api/crisis/policy/historical")
+def api_historical_policies():
+    """历史政策对比"""
+    from data_sources.policy_simulator import get_historical_policies
+    return get_historical_policies()
+
+
+@app.get("/api/crisis/figures/actions")
+def api_crisis_figure_actions():
+    """获取所有危机中的关键人物行为与收益时间线"""
+    from data_sources.crisis_tracker import get_all_crisis_data
+    crises = get_all_crisis_data()
+    result = []
+    for c in crises:
+        for a in c.get("figure_actions", []):
+            a["crisis_id"] = c["id"]
+            a["crisis_name_zh"] = c["name_zh"]
+            a["crisis_name_en"] = c["name_en"]
+            result.append(a)
+    result.sort(key=lambda x: x["date"])
+    return {"actions": result, "total": len(result)}
+
+
+@app.get("/api/crisis/{crisis_id}/figures")
+def api_crisis_figures_by_crisis(crisis_id: str):
+    """获取特定危机中的关键人物行为"""
+    from data_sources.crisis_tracker import get_all_crisis_data
+    crises = get_all_crisis_data()
+    for c in crises:
+        if c["id"] == crisis_id:
+            return {"crisis_id": crisis_id, "actions": c.get("figure_actions", [])}
+    raise HTTPException(404, f"Crisis {crisis_id} not found")
 
 
 # 静态资源

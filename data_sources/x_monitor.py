@@ -259,37 +259,37 @@ def fetch_user_tweets(username: str, max_items: int = 10) -> list[TweetItem]:
 # ==================== 关键词分级 ====================
 
 HIGH_KEYWORDS = {
-    "关税": ["tariff", "trade war", "duties", "import tax", "trade barrier", "trade deal"],
-    "战争": ["war", "military", "invasion", "attack", "troops", "nuclear", "missile", "strike"],
-    "选举": ["election", "vote", "ballot", "campaign", "senate", "congress", "presidential"],
-    "重大政策": ["sanction", "embargo", "executive order", "national emergency", "crackdown", "ban"],
+    "tariff": {"zh": "关税", "en": "Tariff", "keywords": ["tariff", "trade war", "duties", "import tax", "trade barrier", "trade deal", "贸易战", "关税"]},
+    "war": {"zh": "战争", "en": "War", "keywords": ["war", "military", "invasion", "attack", "troops", "nuclear", "missile", "strike", "战争", "军事", "核"]},
+    "election": {"zh": "选举", "en": "Election", "keywords": ["election", "vote", "ballot", "campaign", "senate", "congress", "presidential", "选举", "投票"]},
+    "policy": {"zh": "重大政策", "en": "Policy", "keywords": ["sanction", "embargo", "executive order", "national emergency", "crackdown", "ban", "制裁", "禁令", "行政命令"]},
 }
 MEDIUM_KEYWORDS = {
-    "股市": ["stock", "market", "s&p", "nasdaq", "dow", "rally", "crash", "selloff"],
-    "币圈": ["crypto", "bitcoin", "btc", "ethereum", "eth", "blockchain", "token", "defi"],
-    "中美关系": ["china", "chinese", "beijing", "taiwan", "semiconductor", "chip", "huawei", "tiktok"],
-    "经济": ["fed", "interest rate", "dollar", "inflation", "recession", "gdp", "cpi", "fomc"],
-    "科技": ["spacex", "starlink", "ai", "artificial intelligence", "tesla", "neuralink", "ipo"],
+    "stock": {"zh": "股市", "en": "Stock Market", "keywords": ["stock", "market", "s&p", "nasdaq", "dow", "rally", "crash", "selloff", "股市", "大盘", "指数"]},
+    "crypto": {"zh": "币圈", "en": "Crypto", "keywords": ["crypto", "bitcoin", "btc", "ethereum", "eth", "blockchain", "token", "defi", "加密货币", "比特币"]},
+    "china_us": {"zh": "中美关系", "en": "China-US", "keywords": ["china", "chinese", "beijing", "taiwan", "semiconductor", "chip", "huawei", "tiktok", "中国", "华为", "芯片"]},
+    "economy": {"zh": "经济", "en": "Economy", "keywords": ["fed", "interest rate", "dollar", "inflation", "recession", "gdp", "cpi", "fomc", "美联储", "利率", "通胀"]},
+    "tech": {"zh": "科技", "en": "Tech", "keywords": ["spacex", "starlink", "ai", "artificial intelligence", "tesla", "neuralink", "ipo", "人工智能", "特斯拉"]},
 }
-POSITIVE_KW = ["deal", "agreement", "growth", "boost", "cut", "reduce", "recovery", "success", "win", "approval"]
-NEGATIVE_KW = ["war", "ban", "restrict", "sanction", "threat", "crisis", "crash", "collapse", "attack", "warning"]
+POSITIVE_KW = ["deal", "agreement", "growth", "boost", "cut", "reduce", "recovery", "success", "win", "approval", "利好", "增长", "成功"]
+NEGATIVE_KW = ["war", "ban", "restrict", "sanction", "threat", "crisis", "crash", "collapse", "attack", "warning", "利空", "危机", "暴跌"]
 
 
 def classify_tweet(tweet: TweetItem) -> AnalysisResult:
-    """关键词三级分类"""
+    """关键词三级分类 - 支持中英文"""
     text = f"{tweet.title} {tweet.summary}".lower()
 
     high_matches = {}
-    for cat, keywords in HIGH_KEYWORDS.items():
-        found = [k for k in keywords if k in text]
+    for key, config in HIGH_KEYWORDS.items():
+        found = [k for k in config["keywords"] if k in text]
         if found:
-            high_matches[cat] = found
+            high_matches[key] = config
 
     medium_matches = {}
-    for cat, keywords in MEDIUM_KEYWORDS.items():
-        found = [k for k in keywords if k in text]
+    for key, config in MEDIUM_KEYWORDS.items():
+        found = [k for k in config["keywords"] if k in text]
         if found:
-            medium_matches[cat] = found
+            medium_matches[key] = config
 
     found_pos = [k for k in POSITIVE_KW if k in text]
     found_neg = [k for k in NEGATIVE_KW if k in text]
@@ -302,21 +302,34 @@ def classify_tweet(tweet: TweetItem) -> AnalysisResult:
 
     if high_matches:
         impact_level = "high"
-        category = "、".join(high_matches.keys())
+        categories_zh = "、".join([c["zh"] for c in high_matches.values()])
+        categories_en = ", ".join([c["en"] for c in high_matches.values()])
+        category = f"{categories_en} ({categories_zh})"
     elif medium_matches:
         impact_level = "medium"
-        category = "、".join(medium_matches.keys())
+        categories_zh = "、".join([c["zh"] for c in medium_matches.values()])
+        categories_en = ", ".join([c["en"] for c in medium_matches.values()])
+        category = f"{categories_en} ({categories_zh})"
     else:
         impact_level = "low"
         category = ""
 
+    level_info = {
+        "high": {"zh": "🔴 重大影响", "en": "🔴 High Impact"},
+        "medium": {"zh": "🟡 有影响", "en": "🟡 Medium Impact"},
+        "low": {"zh": "⚪ 无直接影响", "en": "⚪ Low Impact"},
+    }
+    dir_info = {
+        "positive": {"zh": "📈 偏利好", "en": "📈 Positive"},
+        "negative": {"zh": "📉 偏利空", "en": "📉 Negative"},
+        "neutral": {"zh": "↔️ 中性", "en": "↔️ Neutral"},
+    }
+
     analysis_parts = []
-    level_text = {"high": "🔴 重大影响", "medium": "🟡 有影响", "low": "⚪ 无直接影响"}
-    analysis_parts.append(level_text.get(impact_level, "⚪ 未知"))
+    analysis_parts.append(level_info.get(impact_level, level_info["low"])["zh"])
     if category:
         analysis_parts.append(f"分类: {category}")
-    dir_text = {"positive": "📈 偏利好", "negative": "📉 偏利空", "neutral": "↔️ 中性"}
-    analysis_parts.append(f"方向: {dir_text.get(direction, '↔️ 中性')}")
+    analysis_parts.append(dir_info.get(direction, dir_info["neutral"])["zh"])
 
     return AnalysisResult(
         impact_level=impact_level, direction=direction,
@@ -391,7 +404,8 @@ def run_poll_once(accounts: list[str], max_items: int = 5) -> dict:
 
                     # 高级别新推文自动推送微信
                     if result.impact_level == "high":
-                        content = f"👤 @{username} ({display})\n\n{tw.title}\n\n{result.analysis}\n\n🔗 {tw.link}"
+                        title_text = tw.title if len(tw.title) <= 100 else tw.title[:100] + "..."
+                        content = f"👤 @{username} ({display})\n\n{title_text}\n\n{result.analysis}\n\n🔗 {tw.link}"
                         ok = push_alert(
                             level=PushLevel.HIGH,
                             title=f"🔴 {display} 发布重要消息",

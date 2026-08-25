@@ -59,21 +59,71 @@ function switchUser(userId) {
     navigate('overview');
 }
 
-async function createUser() {
-    const username = prompt('请输入用户名（只能包含字母、数字、下划线和连字符）:');
-    if (!username) return;
-    const displayName = prompt('请输入显示名称:');
+function createUser() {
+    console.log('[createUser] called');
+    const modal = $('modal');
+    if (!modal) {
+        console.error('[createUser] modal element not found');
+        alert('页面错误：找不到弹窗元素，请刷新页面重试');
+        return;
+    }
+    modal.innerHTML = `<div class="modal-box" style="max-width:460px">
+        <div class="modal-header">
+            <div class="modal-title">添加用户</div>
+            <button class="btn btn-sm btn-ghost" onclick="closeModal()">关闭</button>
+        </div>
+        <div class="form-field" style="margin-bottom:14px">
+            <label>用户名</label>
+            <input id="newUsername" placeholder="只能包含字母、数字、下划线和连字符" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit">
+        </div>
+        <div class="form-field" style="margin-bottom:20px">
+            <label>显示名称（可选）</label>
+            <input id="newDisplayName" placeholder="如：张三" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:inherit">
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+            <button class="btn btn-success" onclick="doCreateUser()">确认添加</button>
+        </div>
+    </div>`;
+    modal.style.display = 'flex';
+    setTimeout(() => $('newUsername')?.focus(), 100);
+}
+
+async function doCreateUser() {
+    const username = $('newUsername')?.value.trim();
+    const displayName = $('newDisplayName')?.value.trim() || '';
+    if (!username) return showToast('请输入用户名', true);
     try {
         await fetchJSON('/api/users', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username, display_name: displayName || ''})
+            body: JSON.stringify({username, display_name: displayName})
         });
         showToast('用户创建成功');
+        closeModal();
         loadUsers();
     } catch(e) {
         showToast('创建失败: ' + e.message, true);
     }
+}
+
+// 宏观推送操作
+async function macroCheckNow(btn) {
+    btn.disabled = true; btn.textContent = '检查中...';
+    try {
+        const r = await fetchJSON('/api/macro/push-check', {method: 'POST'});
+        showToast(`检查完成: ${r.pushed||0}条已推送, ${r.skipped||0}条跳过`);
+    } catch(e) { showToast('检查失败: ' + e.message, true); }
+    finally { btn.disabled = false; btn.textContent = '立即检查推送'; }
+}
+
+async function macroPushWeekly(btn) {
+    btn.disabled = true; btn.textContent = '推送中...';
+    try {
+        const r = await fetchJSON('/api/macro/push-weekly', {method: 'POST'});
+        showToast(r.pushed ? `已推送本周日历 (${r.events_count}个事件)` : (r.reason || '推送失败'));
+    } catch(e) { showToast('推送失败: ' + e.message, true); }
+    finally { btn.disabled = false; btn.textContent = '推送本周日历'; }
 }
 
 // 路由
@@ -135,7 +185,7 @@ route('overview', async () => {
         ])}</div>
         <div class="grid-2">
             <div class="card"><div class="card-title">最近告警</div>${d.recent_alerts.length?d.recent_alerts.map(a=>`<div class="alert-item ${a.level}"><div class="alert-level">${levelIcon(a.level)}</div><div><div class="alert-title">${a.title}</div><div class="alert-meta">${a.symbol||'组合'} · ${a.created_at}</div></div></div>`).join(''):'<div class="empty"><span class="empty-icon">-</span>暂无告警</div>'}</div>
-            <div class="card"><div class="card-title">最新舆情</div>${d.recent_tweets.length?d.recent_tweets.map(t=>`<div class="alert-item ${t.impact_level||'low'}"><div class="alert-level">${levelIcon(t.impact_level)}</div><div><div class="alert-title">@${t.username}</div><div class="alert-detail" style="font-size:13px">${t.title||''}</div><div class="alert-meta">${t.category||''} · ${t.published||''}</div></div></div>`).join(''):'<div class="empty"><span class="empty-icon">-</span>暂无舆情</div>'}</div>
+            <div class="card"><div class="card-title">Latest Sentiment</div>${d.recent_tweets.length?d.recent_tweets.map(t=>`<div class="alert-item ${t.impact_level||'low'}"><div class="alert-level">${levelIcon(t.impact_level)}</div><div><div class="alert-title">@${t.username}</div><div class="alert-detail" style="font-size:13px">${t.title||''}</div><div class="alert-meta">${t.category||''} · ${t.published||''}</div></div></div>`).join(''):'<div class="empty"><span class="empty-icon">-</span>No sentiment data</div>'}</div>
         </div>
         <div class="card"><div class="card-title">快捷入口</div>
         <div class="stats-grid" style="margin-bottom:0">${[['market-intel','市场情报','&#9733;'],['analysis','智能分析','&#9881;'],['risk','持仓风控','&#9733;'],['knowledge','知识复盘','&#9776;']].map(([r,n,icon])=>`<div class="quick-entry" onclick="navigate('${r}')"><div class="quick-entry-icon">${icon}</div><div>${n}</div></div>`).join('')}</div></div>`;
@@ -161,24 +211,25 @@ route('market-intel', async () => {
             const lastRun = xm.last_run || '未运行';
             const accList = accs.accounts || [];
             const accBadges = accList.map(a => `<span style="display:inline-block;padding:3px 10px;margin:3px;border-radius:12px;font-size:12px;background:${a.enabled?'var(--primary-soft)':'var(--bg)'};color:${a.enabled?'var(--primary)':'var(--text-muted)'};cursor:pointer;border:1px solid ${a.enabled?'var(--primary-light)':'var(--border)'}" onclick="toggleXAccount('${a.username}',${a.enabled?0:1})" title="点击${a.enabled?'禁用':'启用'}">@${a.username}${a.enabled?'':' [已暂停]'}</span>`).join('');
+            const levelLabels = {'high':'P0 High','medium':'P1 Medium','low':'P2 Low'};
             c.innerHTML = `
             <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                <div style="font-size:13px;color:var(--text-secondary)">共 ${d.tweets.length} 条 · 高级别 ${highCount} 条 · 来源: ${d.source} · 上次刷新: ${lastRun}</div>
+                <div style="font-size:13px;color:var(--text-secondary)">Total: ${d.tweets.length} · High: ${highCount} · Source: ${d.source} · Last: ${lastRun}</div>
                 <div style="display:flex;gap:6px">
-                    <button class="btn btn-sm" onclick="refreshSentiment(this)">刷新</button>
-                    <button class="btn btn-sm btn-secondary" onclick="showAddAccount()">添加账号</button>
-                    <button class="btn btn-sm btn-success" onclick="pushHighSentiment()">推送微信</button>
+                    <button class="btn btn-sm" onclick="refreshSentiment(this)">Refresh</button>
+                    <button class="btn btn-sm btn-secondary" onclick="showAddAccount()">Add Account</button>
+                    <button class="btn btn-sm btn-success" onclick="pushHighSentiment()">Push WeChat</button>
                 </div>
             </div>
             <div class="card" style="margin-bottom:12px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <div class="card-title">监控账号 (${accList.length})</div>
-                    <div style="font-size:11px;color:var(--text-muted)">轮询间隔: ${st.poll_interval||300}秒 · 启用: ${accList.filter(a=>a.enabled).length}</div>
+                    <div class="card-title">Monitored Accounts (${accList.length})</div>
+                    <div style="font-size:11px;color:var(--text-muted)">Interval: ${st.poll_interval||300}s · Enabled: ${accList.filter(a=>a.enabled).length}</div>
                 </div>
-                <div>${accBadges || '<span style="color:var(--text-muted)">暂无账号</span>'}</div>
-                ${xm.total_fetched !== undefined ? `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">最近一轮: 拉取 ${xm.total_fetched||0} 条 · 新增 ${xm.new_saved||0} 条 · 推送 ${xm.pushed||0} 条${xm.errors&&xm.errors.length?` · 错误 ${xm.errors.length} 条`:''}</div>` : ''}
+                <div>${accBadges || '<span style="color:var(--text-muted)">No accounts</span>'}</div>
+                ${xm.total_fetched !== undefined ? `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">Last Poll: Fetched ${xm.total_fetched||0} · New ${xm.new_saved||0} · Pushed ${xm.pushed||0}${xm.errors&&xm.errors.length?` · Errors ${xm.errors.length}`:''}</div>` : ''}
             </div>
-            ${table(['级别','用户','内容','分类','时间','操作'],d.tweets.map(t=>`<tr><td>${levelTag(t.impact_level)}</td><td><strong>@${t.username}</strong>${t.pushed?'<span style="font-size:10px;color:var(--success);margin-left:4px">已推</span>':''}</td><td>${t.title||'-'}${t.summary?`<br><small style="color:var(--text-muted)">${t.summary.slice(0,80)}${t.summary.length>80?'...':''}</small>`:''}</td><td><span class="tag tag-blue">${t.category||'-'}</span></td><td style="color:var(--text-muted)">${t.published||t.created_at}</td><td><a href="${t.link||'#'}" target="_blank" style="font-size:12px;color:var(--primary);font-weight:600">原文</a></td></tr>`))}`;
+            ${table(['Level / 级别','User / 用户','Content / 内容','Category / 分类','Time / 时间','Action / 操作'],d.tweets.map(t=>`<tr><td>${levelTag(t.impact_level)}<span style="font-size:10px;color:var(--text-muted);margin-left:4px">${levelLabels[t.impact_level]||''}</span></td><td><strong>@${t.username}</strong>${t.pushed?'<span style="font-size:10px;color:var(--success);margin-left:4px">Pushed</span>':''}</td><td>${t.title||'-'}${t.summary?`<br><small style="color:var(--text-muted)">${t.summary.slice(0,80)}${t.summary.length>80?'...':''}</small>`:''}</td><td><span class="tag tag-blue">${t.category||'-'}</span></td><td style="color:var(--text-muted)">${t.published||t.created_at}</td><td><a href="${t.link||'#'}" target="_blank" style="font-size:12px;color:var(--primary);font-weight:600">Original</a></td></tr>`))}`;
         },
         filings: async c => {
             const d = await fetchJSON('/api/filings');
@@ -249,22 +300,32 @@ route('market-intel', async () => {
         },
         macro: async c => {
             const d = await fetchJSON('/api/macro/calendar');
+            const ps = await fetchJSON('/api/macro/push-status').catch(()=>({running:false,last_result:{}}));
             const evs = d.events || [];
             const crit = evs.filter(e=>e.importance==='critical').length;
             const high = evs.filter(e=>e.importance==='high').length;
             const next = evs[0];
-            c.innerHTML = `<div class="stats-grid" style="margin-bottom:16px">
+            const impEmoji = {critical:'🔴',high:'🟡',medium:'🟢'};
+            const impTag = i => i==='critical'?'<span class="tag tag-red">极度重要</span>':i==='high'?'<span class="tag tag-yellow">重要</span>':'<span class="tag tag-gray">一般</span>';
+            c.innerHTML = `
+            <div class="stats-grid" style="margin-bottom:16px">
                 ${statsGrid([
                     {label:'极度重要',value:crit,cls:'down'},
                     {label:'重要',value:high,cls:'warn'},
                     {label:'未来60天',value:evs.length},
                 ])}
             </div>
+            <div class="card" style="margin-bottom:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <div style="font-size:13px;color:var(--text-secondary)">推送状态: ${ps.running?'<span style="color:var(--success);font-weight:700">● 运行中</span>':'<span style="color:var(--text-muted)">○ 已停止</span>'}</div>
+                ${ps.last_result?.last_run?`<span style="font-size:12px;color:var(--text-muted)">上次检查: ${ps.last_result.last_run}</span>`:''}
+                <button class="btn btn-sm" style="padding:6px 12px;font-size:12px" onclick="macroCheckNow(this)">立即检查推送</button>
+                <button class="btn btn-sm btn-success" style="padding:6px 12px;font-size:12px" onclick="macroPushWeekly(this)">推送本周日历</button>
+            </div>
             ${next ? `<div class="card" style="margin-bottom:14px;border-left:3px solid var(--warning)">
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <div>
-                        <div style="font-size:12px;color:var(--text-muted)">最近一次宏观数据发布</div>
-                        <div style="font-size:18px;font-weight:800;margin-top:6px">${next.name}</div>
+                        <div style="font-size:12px;color:var(--text-muted)">${impEmoji[next.importance]||''} 最近一次宏观数据发布</div>
+                        <div style="font-size:18px;font-weight:800;margin-top:6px">${next.name} <span style="font-size:13px;color:var(--text-muted);font-weight:400">${next.name_en||''}</span></div>
                         <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">北京 ${next.event_datetime_bj} · 美东 ${next.event_datetime_et}</div>
                         ${next.impact ? `<div style="font-size:12px;color:var(--warning);margin-top:6px">${next.impact}</div>` : ''}
                     </div>
@@ -273,12 +334,20 @@ route('market-intel', async () => {
                         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">还有 ${next.days_until} 天</div>
                     </div>
                 </div>
+                ${next.impact_analysis ? `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+                    ${next.impact_analysis.key_point?`<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px"><strong>核心关注:</strong> ${next.impact_analysis.key_point}</div>`:''}
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                        <div><div style="font-size:11px;font-weight:700;color:var(--success);margin-bottom:4px">好于预期</div>${(next.impact_analysis.better_than_expected||[]).map(p=>`<div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">• ${p}</div>`).join('')}</div>
+                        <div><div style="font-size:11px;font-weight:700;color:var(--danger);margin-bottom:4px">差于预期</div>${(next.impact_analysis.worse_than_expected||[]).map(p=>`<div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">• ${p}</div>`).join('')}</div>
+                    </div>
+                </div>` : ''}
+                ${next.historical_data && next.historical_data.length ? `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:4px">上次数据</div><div style="font-size:12px">实际: <strong>${next.historical_data[0].actual||'-'}</strong> · 预期: ${next.historical_data[0].expected||'-'} · 前值: ${next.historical_data[0].previous||'-'}</div>${next.historical_data[0].market_reaction?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${next.historical_data[0].market_reaction}</div>`:''}</div>` : ''}
             </div>` : '<div class="empty"><span class="empty-icon">-</span>未来60天无宏观数据</div>'}
             ${evs.length ? table(
                 ['事件','重要度','北京时间','美东时间','倒计时','关注点'],
                 evs.map(e=>`<tr>
-                    <td><strong>${e.name}</strong></td>
-                    <td>${e.importance==='critical'?'<span class="tag tag-red">极度重要</span>':e.importance==='high'?'<span class="tag tag-yellow">重要</span>':'<span class="tag tag-gray">一般</span>'}</td>
+                    <td><strong>${e.name}</strong>${e.name_en?`<br><small style="color:var(--text-muted)">${e.name_en}</small>`:''}</td>
+                    <td>${impTag(e.importance)}</td>
                     <td>${e.event_datetime_bj}</td>
                     <td style="color:var(--text-muted)">${e.event_datetime_et}</td>
                     <td class="${e.days_until<=3?'down-text':e.days_until<=7?'warn':''}" style="font-weight:700">${e.countdown}</td>
@@ -288,7 +357,7 @@ route('market-intel', async () => {
             <div class="card" style="margin-top:14px">
                 <div style="font-size:12px;color:var(--text-muted)">
                     数据源：${d.source === 'us-stock-monitor' ? 'us-stock-monitor ECONOMIC_CALENDAR（14个核心事件）' : '内置 fallback 规则推算'}<br>
-                    抓取时间：${d.fetched_at}
+                    抓取时间：${d.fetched_at} · 提醒规则: 提前1天/1小时/15分钟推送微信
                 </div>
             </div>`;
         },
@@ -401,6 +470,421 @@ route('knowledge', async () => {
     await tabRenderers.kn.kb($('kn'));
 });
 async function ask(){const q=$('qIn').value.trim();if(!q)return;$('qOut').innerHTML='<div class="loading"><span class="spinner"></span>思考中...</div>';try{const d=await fetchJSON('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});$('qOut').innerHTML=d.answers.map(a=>`<div class="query-answer">${a}</div>`).join('');}catch(e){$('qOut').innerHTML=`<div class="empty"><span class="empty-icon">!</span>${e.message}</div>`;}}
+
+// ==================== 金融危机专题 ====================
+route('crisis', async () => {
+    const tabs = [
+        {key:'overview',label:'危机总览'},
+        {key:'timeline',label:'历史时间线'},
+        {key:'macro',label:'宏观指标'},
+        {key:'institutions',label:'金融机构'},
+        {key:'risk',label:'风险看板'},
+        {key:'compare',label:'对比2008'},
+        {key:'yield',label:'收益率曲线'},
+        {key:'valuation',label:'估值杠杆'},
+        {key:'crosscycle',label:'跨周期对比'},
+        {key:'toolbox',label:'政策工具箱'},
+        {key:'transmission',label:'传导图谱'},
+        {key:'recovery',label:'恢复看板'},
+        {key:'figures',label:'人物行为'},
+        {key:'reports',label:'机构报告'},
+    ];
+    $('pageContent').innerHTML = `<div class="page-header"><div><div class="page-title">金融危机专题</div><div class="page-subtitle">Crisis Research: History · Monitoring · Simulation</div></div></div>${renderTabs(tabs,'overview','cr')}`;
+    tabRenderers.cr = {
+        overview: async c => {
+            const [d, rd] = await Promise.all([fetchJSON('/api/crisis/list'), fetchJSON('/api/crisis/risk/dashboard')]);
+            const crises = d.crises;
+            const sc = {'2008-level':'#dc2626','major':'#f59e0b','moderate':'#3b82f6'};
+            const riskColors = {low:'#10b981',moderate:'#f59e0b',elevated:'#f97316',high:'#ef4444',extreme:'#dc2626'};
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="font-size:18px;font-weight:700;margin-bottom:8px">Financial Crisis Research Center / 金融危机研究中心</div>
+                <div style="font-size:13px;color:#94a3b8;line-height:1.6">系统研究1929大萧条、1997亚洲金融风暴、2000互联网泡沫、2008全球金融危机和2020新冠崩盘，通过历史事件时间线、宏观指标回溯、机构演变追踪、实时风险监测和政策推演沙盘，全面评估当前市场与历史危机的相似度。</div>
+            </div>
+            <div class="stats-grid" style="margin-bottom:16px">${statsGrid([
+                {label:'研究危机数 / Crises',value:crises.length},
+                {label:'2008级别 / Severity',value:crises.filter(x=>x.severity==='2008-level').length,cls:'down'},
+                {label:'最大跌幅 / Max Drop',value:`${Math.min(...crises.map(x=>x.peak_decline_snp)).toFixed(1)}%`,cls:'down'},
+                {label:'当前风险评分 / Risk Score',value:`${rd.risk_score||0}/100`,cls:rd.risk_level==='low'?'up':'down'},
+            ])}</div>
+            ${rd.risk_level ? `<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:16px">
+                <div style="width:60px;height:60px;border-radius:50%;background:${riskColors[rd.risk_level]}20;display:flex;align-items:center;justify-content:center;border:3px solid ${riskColors[rd.risk_level]}">
+                    <span style="font-size:18px;font-weight:800;color:${riskColors[rd.risk_level]}">${rd.risk_score}</span>
+                </div>
+                <div style="flex:1">
+                    <div style="font-size:16px;font-weight:700;color:${riskColors[rd.risk_level]}">${rd.risk_level_zh||rd.risk_level} / ${rd.risk_level_en||rd.risk_level}</div>
+                    <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">${rd.assessment_zh||''}</div>
+                </div>
+            </div>` : ''}
+            ${crises.map(cr => `
+                <div class="card" style="margin-bottom:12px;cursor:pointer" onclick="showCrisisDetail('${cr.id}')">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                        <div style="flex:1">
+                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sc[cr.severity]||'#64748b'}"></span>
+                                <strong style="font-size:15px">${cr.name_zh}</strong>
+                                <span style="font-size:12px;color:var(--text-muted)">${cr.name_en}</span>
+                            </div>
+                            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">${cr.period} · 持续${cr.duration_months}个月</div>
+                            <div style="display:flex;gap:16px;flex-wrap:wrap">
+                                <span style="font-size:12px;color:var(--text-muted)">S&P: <strong style="color:var(--danger)">${cr.peak_decline_snp}%</strong></span>
+                                <span style="font-size:12px;color:var(--text-muted)">GDP: <strong style="color:var(--danger)">${cr.peak_decline_gdp}%</strong></span>
+                                <span style="font-size:12px;color:var(--text-muted)">Unemployment: <strong>${cr.peak_unemployment}%</strong></span>
+                                <span style="font-size:12px;color:var(--text-muted)">Events: <strong>${cr.key_events.length}</strong></span>
+                            </div>
+                        </div>
+                        <span class="tag" style="background:${sc[cr.severity]}20;color:${sc[cr.severity]};border:1px solid ${sc[cr.severity]}40">${cr.severity}</span>
+                    </div>
+                </div>`).join('')}`;
+        },
+        timeline: async c => {
+            const d = await fetchJSON('/api/crisis/list');
+            c.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="card-title">Select Crisis / 选择危机</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${d.crises.map((cr,i)=>`<button class="btn ${i===0?'':'btn-secondary'}" style="font-size:12px" onclick="loadMultiTimeline('${cr.id}',this)">${cr.name_zh}</button>`).join('')}</div></div><div id="crisisTimelineContent"><div class="loading"><span class="spinner"></span>Loading...</div></div>`;
+            loadMultiTimeline(d.crises[0].id);
+        },
+        macro: async c => {
+            const d = await fetchJSON('/api/crisis/list');
+            c.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="card-title">Select Crisis / 选择危机</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${d.crises.map((cr,i)=>`<button class="btn ${i===0?'':'btn-secondary'}" style="font-size:12px" onclick="loadMacroIndicators('${cr.id}',this)">${cr.name_zh}</button>`).join('')}</div></div><div id="macroContent"><div class="loading"><span class="spinner"></span>Loading...</div></div>`;
+            loadMacroIndicators(d.crises[0].id);
+        },
+        institutions: async c => {
+            const d = await fetchJSON('/api/crisis/list');
+            c.innerHTML = `<div class="card" style="margin-bottom:12px"><div class="card-title">Select Crisis / 选择危机</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${d.crises.map((cr,i)=>`<button class="btn ${i===0?'':'btn-secondary'}" style="font-size:12px" onclick="loadInstitutions('${cr.id}',this)">${cr.name_zh}</button>`).join('')}</div></div><div id="instContent"><div class="loading"><span class="spinner"></span>Loading...</div></div>`;
+            loadInstitutions(d.crises[0].id);
+        },
+        risk: async c => {
+            const d = await fetchJSON('/api/crisis/risk/dashboard');
+            const rc = {low:'#10b981',moderate:'#f59e0b',elevated:'#f97316',high:'#ef4444',extreme:'#dc2626'};
+            const top5 = d.top_5_risk_signals||[];
+            const safe = d.safe_signals||[];
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                        <div style="font-size:16px;font-weight:700">Risk Dashboard / 风险总览看板</div>
+                        <div style="font-size:13px;color:#94a3b8;margin-top:4px">${d.assessment_zh||''}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-size:36px;font-weight:800;color:${rc[d.risk_level]||'#64748b'}">${d.risk_score||0}</div>
+                        <div style="font-size:11px;color:#94a3b8">${d.risk_level_zh||d.risk_level} / Risk Score</div>
+                    </div>
+                </div>
+            </div>
+            <div class="stats-grid" style="margin-bottom:16px">${statsGrid([
+                {label:'Warning Signals',value:d.summary?.total_warning_signals||d.summary?.warning||0,cls:'down'},
+                {label:'Danger Signals',value:d.summary?.danger||0,cls:'down'},
+                {label:'Normal',value:d.summary?.normal||(safe.length),cls:'up'},
+                {label:'Total Metrics',value:d.summary?.total||(top5.length+safe.length)},
+            ])}</div>
+            <div class="grid-2">
+                <div class="card"><div class="card-title">Top 5 Risk Signals / 五大风险信号</div>${top5.length?top5.map(s=>{const lv={normal:'var(--success)',warning:'var(--warning)',danger:'var(--danger)'};return `<div class="alert-item ${s.warning_level||'medium'}"><div class="alert-level">!</div><div><div class="alert-title">${s.label_zh||s.label_en||''}</div><div class="alert-meta">${s.label_en||''} · 当前: ${s.current}${s.unit||''}</div></div></div>`}).join(''):'<div class="empty"><span class="empty-icon">-</span>No signals</div>'}</div>
+                <div class="card"><div class="card-title">Safe Signals / 安全信号</div>${safe.length?safe.map(s=>`<div class="alert-item low"><div class="alert-level">+</div><div><div class="alert-title">${s.label_zh||s.label_en||''}</div><div class="alert-meta">${s.label_en||''} · 当前: ${s.current}${s.unit||''}</div></div></div>`).join(''):'<div class="empty"><span class="empty-icon">-</span>No data</div>'}</div>
+            </div>`;
+        },
+        compare: async c => {
+            const d = await fetchJSON('/api/crisis/compare/2008');
+            const avg = d.avg_crisis_progress_pct;
+            const pc = avg<25?'var(--success)':(avg<50?'var(--warning)':'var(--danger)');
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <div style="font-size:16px;font-weight:700">Current vs 2008 / 当前与2008对比</div>
+                    <div style="text-align:right"><div style="font-size:28px;font-weight:800;color:${pc}">${avg}%</div><div style="font-size:11px;color:#94a3b8">Crisis Progress / 危机进度</div></div>
+                </div>
+                <div style="background:rgba(255,255,255,0.1);border-radius:8px;height:8px;overflow:hidden;margin-bottom:12px"><div style="width:${avg}%;height:100%;background:${pc};border-radius:8px"></div></div>
+                <div style="font-size:13px;color:#94a3b8">${d.assessment_zh||''}</div>
+            </div>
+            ${table(['Indicator / 指标','Current','2008 Peak','Normal','Progress','Status'],d.indicators.map(i=>{const sc={normal:'var(--success)',warning:'var(--warning)',danger:'var(--danger)'};const sl={normal:'正常',warning:'警告',danger:'危险'};const pb=`<div style="background:var(--bg);border-radius:4px;height:6px;overflow:hidden;width:80px"><div style="width:${i.crisis_progress_pct}%;height:100%;background:${sc[i.status]};border-radius:4px"></div></div>`;return `<tr><td><strong style="font-size:13px">${i.key.replace(/_/g,' ')}</strong>${i.note?`<br><small style="color:var(--text-muted)">${i.note}</small>`:''}</td><td style="font-weight:700;color:${sc[i.status]}">${i.value}</td><td style="color:var(--danger)">${i.crisis_2008}</td><td style="color:var(--text-muted)">${i.normal}</td><td>${pb}<span style="font-size:11px;color:var(--text-muted)">${i.crisis_progress_pct}%</span></td><td><span class="tag" style="background:${sc[i.status]}20;color:${sc[i.status]};border:1px solid ${sc[i.status]}40">${sl[i.status]}</span></td></tr>`}))}`;
+        },
+        yield: async c => {
+            const d = await fetchJSON('/api/crisis/risk/yield-curve');
+            const status = d.inversion_status || 'normal';
+            const status_zh = d.inversion_status_zh || status;
+            const sc = {inverted:'var(--danger)',normal:'var(--success)',flat:'var(--warning)'};
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:16px">
+                <div style="width:60px;height:60px;border-radius:50%;background:${sc[status]||'var(--text-muted)'}20;display:flex;align-items:center;justify-content:center;border:3px solid ${sc[status]||'var(--text-muted)'}"><span style="font-size:20px">${status==='inverted'?'!':'O'}</span></div>
+                <div><div style="font-size:16px;font-weight:700;color:${sc[status]||'var(--text-muted)'}">${status_zh} / ${status}</div><div style="font-size:13px;color:var(--text-secondary);margin-top:4px">${d.assessment_zh||''}</div></div>
+            </div>
+            <div class="stats-grid" style="margin-bottom:16px">${statsGrid((d.spreads||[]).map(s=>({label:s.label,value:`${s.value>0?'+':''}${s.value.toFixed?s.value.toFixed(2):s.value}%`,cls:s.inverted?'down':'up',sub:s.inverted?'Inverted':'Normal'})))}</div>
+            ${table(['Maturity / 期限','Yield / 收益率'],(d.yields_pct||[]).map(y=>`<tr><td><strong>${y.maturity}</strong></td><td style="font-weight:700;font-size:14px">${y.value.toFixed?y.value.toFixed(2):y.value}%</td></tr>`))}
+            ${d.historical_comparison?`<div class="card" style="margin-top:16px"><div class="card-title">Historical Inversions / 历史倒挂</div>${table(['Period','10Y-2Y','Result'],(d.historical_comparison.inversions||[]).map(h=>`<tr><td>${h.period}</td><td>${h.spread}</td><td style="color:var(--text-secondary)">${h.outcome_zh||h.outcome||''}</td></tr>`))}</div>`:''}`;
+        },
+        valuation: async c => {
+            const d = await fetchJSON('/api/crisis/risk/valuation');
+            const sc = {normal:'var(--success)',warning:'var(--warning)',danger:'var(--danger)'};
+            const sl = {normal:'正常 Normal',warning:'警告 Warning',danger:'危险 Danger'};
+            c.innerHTML = `
+            <div class="stats-grid" style="margin-bottom:16px">${statsGrid((d.metrics||[]).slice(0,4).map(m=>({label:m.label_zh||m.label_en,value:m.current,cls:m.warning_level==='danger'?'down':(m.warning_level==='warning'?'warn':'up'),sub:`阈值: ${m.warning_threshold||'-'}`})))}</div>
+            ${table(['Metric / 指标','Current','2008','Historical Median','Warning Threshold','Level'],(d.metrics||[]).map(m=>`<tr><td><strong style="font-size:13px">${m.label_zh||m.label_en}</strong><br><small style="color:var(--text-muted)">${m.label_en||''}</small></td><td style="font-weight:700;color:${sc[m.warning_level]||'var(--text-muted)'}">${m.current}${m.unit||''}</td><td style="color:var(--danger)">${m.crisis_2008_peak||'-'}</td><td style="color:var(--text-muted)">${(m.normal_range||[]).join('-')||'-'}</td><td>${m.warning_threshold||'-'}</td><td><span class="tag" style="background:${sc[m.warning_level]}20;color:${sc[m.warning_level]};border:1px solid ${sc[m.warning_level]}40">${sl[m.warning_level]||'-'}</span></td></tr>`))}`;
+        },
+        crosscycle: async c => {
+            const d = await fetchJSON('/api/crisis/risk/cross-cycle');
+            const score = d.overall_risk_score||0;
+            const pc = score<30?'var(--success)':(score<60?'var(--warning)':'var(--danger)');
+            const mt = d.metrics_table||[];
+            const periods = d.periods||{};
+            const periodKeys = Object.keys(periods);
+            const headers = ['指标', ...periodKeys.map(k=>periods[k].label_zh||k)];
+            const rows = mt.map(m => [m.label_zh||m.label_en||m.key, ...periodKeys.map(k=>(m.values_by_period||{})[k]??'-')]);
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div style="font-size:16px;font-weight:700">Cross-Cycle Comparison / 跨周期对比</div>
+                    <div style="text-align:right"><div style="font-size:28px;font-weight:800;color:${pc}">${score}/100</div><div style="font-size:11px;color:#94a3b8">Risk Score</div></div>
+                </div>
+                <div style="background:rgba(255,255,255,0.1);border-radius:8px;height:6px;overflow:hidden;margin-top:12px"><div style="width:${score}%;height:100%;background:${pc};border-radius:8px"></div></div>
+            </div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">${d.assessment_zh||''}</div>
+            ${table(headers,rows.map(r=>`<tr>${r.map((cell,i)=>`<td style="${i===0?'font-weight:700;font-size:13px':''}">${cell}</td>`).join('')}</tr>`))}`;
+        },
+        toolbox: async c => {
+            const d = await fetchJSON('/api/crisis/policy/toolbox');
+            const cats = d.categories||{};
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="font-size:16px;font-weight:700;margin-bottom:8px">Policy Toolbox / 政策工具箱</div>
+                <div style="font-size:13px;color:#94a3b8">选择政策工具进行模拟，查看组合效果。Select tools to simulate their combined impact.</div>
+            </div>
+            <div style="margin-bottom:16px">
+                <label style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;display:block">Crisis Severity / 危机严重度</label>
+                <select id="severitySelect" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;width:100%;max-width:300px">
+                    <option value="mild">Mild / 轻度</option>
+                    <option value="moderate" selected>Moderate / 中度</option>
+                    <option value="severe">Severe / 严重</option>
+                    <option value="2008-level">2008-Level / 2008级别</option>
+                </select>
+            </div>
+            ${Object.entries(cats).map(([catKey, catData]) => `
+                <div class="card" style="margin-bottom:12px">
+                    <div class="card-title">${catData.label_zh||catKey}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${catData.label_en||''}</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin-top:8px">
+                        ${(catData.tools||[]).map(t=>`<label style="display:flex;align-items:flex-start;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:var(--transition)" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'"><input type="checkbox" value="${t.id}" class="policy-checkbox" style="margin-top:2px"><div><div style="font-size:13px;font-weight:600">${t.name_zh||t.name}</div><div style="font-size:11px;color:var(--text-muted)">${t.name_en||t.name}</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px">${t.description_zh||''}</div></div></label>`).join('')}
+                    </div>
+                </div>`).join('')}
+            <button class="btn btn-success" style="width:100%;padding:12px;font-size:15px" onclick="runPolicySimulation()">Run Simulation / 运行模拟</button>
+            <div id="simResult" style="margin-top:16px"></div>`;
+        },
+        transmission: async c => {
+            const d = await fetchJSON('/api/crisis/transmission/graph');
+            const nodes = d.nodes||[];
+            const edges = d.edges||[];
+            const catColors = {asset_class:'#ef4444',institution:'#f59e0b',market:'#3b82f6',real_economy:'#10b981'};
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="font-size:16px;font-weight:700;margin-bottom:8px">Risk Transmission Graph / 风险传导图谱</div>
+                <div style="font-size:13px;color:#94a3b8">展示局部风险如何通过金融系统传导为系统性风险。Shows how localized risk transmits through the financial system into systemic risk.</div>
+            </div>
+            <div class="stats-grid" style="margin-bottom:16px">${statsGrid([
+                {label:'Nodes / 节点',value:nodes.length},
+                {label:'Edges / 边',value:edges.length},
+                {label:'Feedback Loops',value:(d.feedback_loops||[]).length},
+                {label:'High Severity',value:edges.filter(e=>e.severity==='high').length,cls:'down'},
+            ])}</div>
+            <div class="grid-2">
+                <div class="card"><div class="card-title">Nodes / 节点 (${nodes.length})</div><div style="margin-top:8px">${nodes.map(n=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)"><span style="width:10px;height:10px;border-radius:50%;background:${catColors[n.category]||'#64748b'}"></span><div><div style="font-size:13px;font-weight:600">${n.label_zh||n.label||n.id}</div><div style="font-size:11px;color:var(--text-muted)">${n.label_en||n.id}</div></div></div>`).join('')}</div></div>
+                <div class="card"><div class="card-title">Transmission Paths / 传导路径 (${edges.length})</div><div style="margin-top:8px;max-height:500px;overflow-y:auto">${edges.map(e=>{const sv={high:'var(--danger)',medium:'var(--warning)',low:'var(--text-muted)'};return `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-size:12px;font-weight:600">${e.from_label||e.from}</span><span style="color:var(--text-muted)">&rarr;</span><span style="font-size:12px;font-weight:600">${e.to_label||e.to}</span><span style="width:8px;height:8px;border-radius:50%;background:${sv[e.severity]||'var(--text-muted)'};margin-left:auto"></span></div><div style="font-size:11px;color:var(--text-muted)">${e.description_zh||e.description||''}</div></div>`}).join('')}</div></div>
+            </div>`;
+        },
+        recovery: async c => {
+            const [rd, hp] = await Promise.all([fetchJSON('/api/crisis/recovery/dashboard'), fetchJSON('/api/crisis/policy/historical')]);
+            const score = rd.overall_recovery_capacity_score||0;
+            const pc = score>=70?'var(--success)':(score>=40?'var(--warning)':'var(--danger)');
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div><div style="font-size:16px;font-weight:700">Recovery Dashboard / 恢复进程看板</div><div style="font-size:13px;color:#94a3b8;margin-top:4px">${rd.assessment_zh||''}</div></div>
+                    <div style="text-align:right"><div style="font-size:36px;font-weight:800;color:${pc}">${score}</div><div style="font-size:11px;color:#94a3b8">Recovery Capacity / 100</div></div>
+                </div>
+            </div>
+            <div class="stats-grid" style="margin-bottom:16px">${statsGrid([
+                {label:'Monetary Space / 货币空间',value:`${rd.monetary_space?.fed_rate||'5.5%'} → 0%`,sub:`Room: ${rd.monetary_space?.room_to_cut||'538bps'}`},
+                {label:'Fiscal Space / 财政空间',value:`${rd.fiscal_space?.debt_to_gdp||124}%`,sub:`Debt/GDP`,cls:'warn'},
+                {label:'Bank Capital / 银行资本',value:`${rd.banking_resilience?.tier1_ratio||14.7}%`,sub:`Tier 1`,cls:'up'},
+                {label:'LCR / 流动性覆盖率',value:`${rd.banking_resilience?.lcr||121}%`,sub:`>100% required`,cls:'up'},
+            ])}</div>
+            <div class="card" style="margin-bottom:12px">
+                <div class="card-title">Historical Policy Comparison / 历史政策对比</div>
+                ${table(['Crisis','Policies','Fiscal Cost','Effectiveness','Recovery','Lessons'],(hp.crises||[]).map(cr=>`<tr><td><strong style="font-size:13px">${cr.name_zh||cr.name}</strong></td><td style="font-size:12px">${(cr.policies||[]).join(', ')}</td><td style="font-weight:600">${cr.total_fiscal_cost||'-'}</td><td><span class="tag ${cr.effectiveness>=4?'tag-green':cr.effectiveness>=3?'tag-blue':'tag-red'}">${'★'.repeat(cr.effectiveness||1)}</span></td><td style="font-size:12px">${cr.recovery_time||'-'}</td><td style="font-size:11px;color:var(--text-muted);max-width:300px">${cr.lessons_zh||cr.lessons||''}</td></tr>`))}
+            </div>`;
+        },
+        figures: async c => {
+            const d = await fetchJSON('/api/crisis/figures/actions');
+            const actions = d.actions||[];
+            const grouped = {};
+            actions.forEach(a => {
+                const k = a.crisis_id;
+                if (!grouped[k]) grouped[k] = {name: a.crisis_name_zh, name_en: a.crisis_name_en, items: []};
+                grouped[k].items.push(a);
+            });
+            const gainColor = g => g>=100?'var(--success)':g>=0?'var(--primary)':'var(--danger)';
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="font-size:16px;font-weight:700;margin-bottom:8px">Crisis Figures & Actions / 危机人物行为与收益时间线</div>
+                <div style="font-size:13px;color:#94a3b8">历次金融危机中，巴菲特、索罗斯、保尔森等关键人物的操作、策略和收益。共 ${actions.length} 条记录。</div>
+            </div>
+            ${Object.values(grouped).map(g => `
+                <div class="card" style="margin-bottom:16px">
+                    <div class="card-title" style="font-size:15px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px">${g.name} <span style="font-size:12px;color:var(--text-muted);font-weight:400">${g.name_en}</span></div>
+                    <div style="position:relative;padding-left:24px">
+                        <div style="position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--border)"></div>
+                        ${g.items.sort((a,b)=>a.date.localeCompare(b.date)).map(a => `
+                            <div style="position:relative;margin-bottom:16px;padding-left:20px">
+                                <div style="position:absolute;left:-16px;top:4px;width:10px;height:10px;border-radius:50%;background:${gainColor(a.gain_pct)};border:2px solid var(--card-bg)"></div>
+                                <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+                                    <div>
+                                        <span style="font-size:12px;font-weight:700;color:var(--primary)">${a.date}</span>
+                                        <span style="font-size:14px;font-weight:700;margin-left:8px">${a.figure}</span>
+                                        <span class="tag tag-blue" style="margin-left:6px">${a.asset_class}</span>
+                                    </div>
+                                    <span style="font-size:16px;font-weight:800;color:${gainColor(a.gain_pct)}">${a.gain_pct>0?'+':''}${a.gain_pct}%</span>
+                                </div>
+                                <div style="font-size:13px;color:var(--text);margin-top:4px;line-height:1.5">${a.action_zh}</div>
+                                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${a.action_en}</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px"><strong>策略:</strong> ${a.strategy_zh}</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:4px"><strong>结果:</strong> ${a.outcome_zh}</div>
+                                <div style="margin-top:4px">${(a.tags||[]).map(t=>`<span class="tag" style="font-size:10px;padding:2px 6px;margin-right:4px">${t}</span>`).join('')}</div>
+                            </div>`).join('')}
+                    </div>
+                </div>`).join('')}
+            `;
+        },
+        reports: async c => {
+            const d = await fetchJSON('/api/crisis/list');
+            const all = [];
+            d.crises.forEach(cr=>{(cr.institutional_analyses||[]).forEach(a=>all.push({...a,crisis:cr.name_zh,crisis_id:cr.id}))});
+            c.innerHTML = `
+            <div class="card" style="margin-bottom:16px;padding:20px;background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff">
+                <div style="font-size:16px;font-weight:700;margin-bottom:8px">Institutional Reports / 机构分析报告</div>
+                <div style="font-size:13px;color:#94a3b8">来自美联储、IMF、BIS、高盛、摩根大通等权威机构的深度研究报告。共 ${all.length} 份报告。</div>
+            </div>
+            ${all.map((a,i)=>`
+                <div class="card" style="margin-bottom:12px;border:1px solid var(--border);border-radius:12px;overflow:hidden">
+                    <div style="padding:16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start">
+                        <div>
+                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+                                <strong style="font-size:15px;font-weight:700;color:var(--text)">${a.institution}</strong>
+                                <span class="tag tag-blue">${a.crisis}</span>
+                                ${a.date?`<span style="font-size:12px;color:var(--text-muted)">${a.date}</span>`:''}
+                            </div>
+                            <div style="font-size:14px;color:var(--text-secondary);font-weight:600">${a.report}</div>
+                        </div>
+                        <div style="display:flex;gap:8px">
+                            ${a.download_url?`<a href="${a.download_url}" target="_blank" class="btn btn-sm" style="padding:6px 12px;font-size:12px">📥 ${a.download_url.toLowerCase().endsWith('.pdf')?'下载 PDF':'查看资源'}</a>`:''}
+                            ${a.url?`<a href="${a.url}" target="_blank" class="btn btn-sm btn-secondary" style="padding:6px 12px;font-size:12px">查看原文</a>`:''}
+                        </div>
+                    </div>
+                    <div style="padding:16px">
+                        <div style="margin-bottom:12px">
+                            <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:4px">KEY FINDING / 核心发现</div>
+                            <div style="font-size:13px;color:var(--text);line-height:1.6;font-weight:600">${a.key_finding_zh}</div>
+                            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${a.key_finding_en}</div>
+                        </div>
+                        ${a.summary_zh?`<div style="margin-bottom:12px;padding:12px;background:var(--bg);border-radius:8px">
+                            <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">报告摘要 / Report Summary</div>
+                            <div style="font-size:13px;color:var(--text);line-height:1.7">${a.summary_zh}</div>
+                        </div>`:''}
+                        ${a.conclusion_zh?`<div style="padding:12px;background:linear-gradient(135deg,var(--primary)10,var(--primary)5);border-left:4px solid var(--primary);border-radius:0 8px 8px 0">
+                            <div style="font-size:13px;color:var(--text);line-height:1.7;font-weight:500">${a.conclusion_zh}</div>
+                        </div>`:''}
+                    </div>
+                </div>
+            `).join('')}`;
+        },
+    };
+    await tabRenderers.cr.overview($('cr'));
+});
+
+// ---- 金融危机辅助函数 ----
+async function loadMultiTimeline(crisisId, btn) {
+    if (btn) { document.querySelectorAll('#cr .btn').forEach(b=>b.classList.add('btn-secondary')); btn.classList.remove('btn-secondary'); }
+    const content = $('crisisTimelineContent'); if (!content) return;
+    content.innerHTML = '<div class="loading"><span class="spinner"></span>Loading...</div>';
+    try {
+        const d = await fetchJSON(`/api/crisis/${crisisId}/multi-timeline`);
+        const dims = d.dimensions||{};
+        const dimLabels = {market:'市场 / Market',institution:'机构 / Institution',policy:'政策 / Policy',economic:'经济 / Economic'};
+        const dimColors = {market:'#ef4444',institution:'#f59e0b',policy:'#3b82f6',economic:'#10b981'};
+        content.innerHTML = Object.entries(dimLabels).map(([dk,dl])=>{
+            const events = dims[dk]||[];
+            if(!events.length) return '';
+            return `<div class="card" style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="width:10px;height:10px;border-radius:50%;background:${dimColors[dk]}"></span><strong style="font-size:14px">${dl}</strong><span style="font-size:12px;color:var(--text-muted)">(${events.length})</span></div><div style="position:relative;padding-left:20px"><div style="position:absolute;left:6px;top:0;bottom:0;width:2px;background:${dimColors[dk]}40"></div>${events.map(e=>`<div style="position:relative;margin-bottom:10px;padding-left:16px"><div style="position:absolute;left:-14px;top:4px;width:8px;height:8px;border-radius:50%;background:${dimColors[dk]}"></div><div style="font-size:12px;font-weight:700;color:var(--primary)">${e.date}</div><div style="font-size:13px;font-weight:600">${e.event_zh||e.event}</div><div style="font-size:11px;color:var(--text-muted)">${e.event_en||''}</div></div>`).join('')}</div></div>`;
+        }).join('') || '<div class="empty">No data</div>';
+    } catch(e) { content.innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+async function loadMacroIndicators(crisisId, btn) {
+    if (btn) { document.querySelectorAll('#cr .btn').forEach(b=>b.classList.add('btn-secondary')); btn.classList.remove('btn-secondary'); }
+    const content = $('macroContent'); if (!content) return;
+    content.innerHTML = '<div class="loading"><span class="spinner"></span>Loading...</div>';
+    try {
+        const d = await fetchJSON(`/api/crisis/${crisisId}/macro`);
+        const data = d.data||d.indicators||[];
+        if (!data.length) { content.innerHTML = '<div class="empty">No data</div>'; return; }
+        const cols = Object.keys(data[0]);
+        content.innerHTML = `<div class="card"><div class="card-title">Macroeconomic Indicators / 宏观经济指标</div><div style="overflow-x:auto">${table(cols.map(c=>c.replace(/_/g,' ').replace(/\b\w/g,x=>x.toUpperCase())),data.map(r=>`<tr>${cols.map(c=>`<td style="font-size:12px">${r[c]??'-'}</td>`).join('')}</tr>`))}</div></div>`;
+    } catch(e) { content.innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+async function loadInstitutions(crisisId, btn) {
+    if (btn) { document.querySelectorAll('#cr .btn').forEach(b=>b.classList.add('btn-secondary')); btn.classList.remove('btn-secondary'); }
+    const content = $('instContent'); if (!content) return;
+    content.innerHTML = '<div class="loading"><span class="spinner"></span>Loading...</div>';
+    try {
+        const d = await fetchJSON(`/api/crisis/${crisisId}/institutions`);
+        const events = d.events||d.institutions||[];
+        if (!events.length) { content.innerHTML = '<div class="empty">No data</div>'; return; }
+        const typeColors = {bankruptcy:'#dc2626',acquisition:'#3b82f6',bailout:'#f59e0b',government_takeover:'#8b5cf6',recapitalization:'#10b981'};
+        const typeLabels = {bankruptcy:'破产 Bankruptcy',acquisition:'收购 Acquisition',bailout:'救助 Bailout',government_takeover:'政府接管 Gov Takeover',recapitalization:'注资 Recapitalization'};
+        content.innerHTML = events.map(e=>`<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${typeColors[e.event_type]||'#64748b'}"></span><strong style="font-size:14px">${e.name_zh||e.name||''}</strong><span style="font-size:11px;color:var(--text-muted)">${e.name_en||''}</span></div><div style="font-size:13px;color:var(--text-secondary)">${e.description_zh||e.description||''}</div>${e.acquirer?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Acquirer: ${e.acquirer}</div>`:''}${e.bailout_amount?`<div style="font-size:12px;color:var(--text-muted)">Bailout: ${e.bailout_amount}</div>`:''}</div><div style="text-align:right"><span style="font-size:12px;font-weight:700;color:var(--primary)">${e.date||''}</span><div style="margin-top:4px"><span class="tag" style="background:${typeColors[e.event_type]||'#64748b'}20;color:${typeColors[e.event_type]||'#64748b'};border:1px solid ${typeColors[e.event_type]||'#64748b'}40;font-size:10px">${typeLabels[e.event_type]||e.event_type||''}</span></div></div></div></div>`).join('');
+    } catch(e) { content.innerHTML = `<div class="empty">${e.message}</div>`; }
+}
+
+function showCrisisDetail(crisisId) {
+    const modal = $('modal'); if (!modal) return;
+    modal.innerHTML = '<div class="modal-box" style="max-width:900px"><div class="loading"><span class="spinner"></span>Loading...</div></div>';
+    modal.style.display = 'flex';
+    fetchJSON(`/api/crisis/${crisisId}`).then(d => {
+        modal.innerHTML = `<div class="modal-box" style="max-width:900px;max-height:85vh;overflow-y:auto">
+            <div class="modal-header"><div><div class="modal-title" style="font-size:18px">${d.name_zh}</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px">${d.name_en} · ${d.period}</div></div><button class="btn btn-sm btn-ghost" onclick="closeModal()">Close</button></div>
+            <div class="stats-grid" style="margin-bottom:16px">${statsGrid([{label:'S&P 500 Drop',value:`${d.peak_decline_snp}%`,cls:'down'},{label:'GDP Decline',value:`${d.peak_decline_gdp}%`,cls:'down'},{label:'Peak Unemployment',value:`${d.peak_unemployment}%`},{label:'Duration',value:`${d.duration_months}m`}])}</div>
+            <div class="card" style="margin-bottom:12px"><div class="card-title">Causes / 危机原因</div><div style="font-size:13px;color:var(--text-secondary);white-space:pre-wrap;line-height:1.7;margin-top:8px">${d.causes_zh}</div></div>
+            <div class="card" style="margin-bottom:12px"><div class="card-title">Recovery Actions / 应对措施</div><div style="font-size:13px;color:var(--text-secondary);white-space:pre-wrap;line-height:1.7;margin-top:8px">${d.recovery_actions_zh}</div></div>
+            <div class="card" style="margin-bottom:12px"><div class="card-title">Lessons Learned / 经验教训</div><div style="font-size:13px;color:var(--text-secondary);white-space:pre-wrap;line-height:1.7;margin-top:8px">${d.lessons_zh}</div></div>
+            <div class="card"><div class="card-title">Key Events / 关键事件</div><div style="margin-top:8px">${d.key_events.map(e=>{const ic={high:'var(--danger)',medium:'var(--warning)',low:'var(--text-muted)'};return `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)"><span style="font-size:12px;font-weight:700;color:var(--primary);min-width:80px">${e.date}</span><div style="flex:1"><div style="font-size:13px;font-weight:600">${e.event_zh}</div><div style="font-size:11px;color:var(--text-muted)">${e.event_en}</div></div><span style="width:8px;height:8px;border-radius:50%;background:${ic[e.impact]||'var(--text-muted)'};flex-shrink:0;margin-top:4px"></span></div>`}).join('')}</div></div>
+        </div>`;
+    }).catch(e => { modal.innerHTML = `<div class="modal-box"><div class="empty">Error: ${e.message}</div></div>`; });
+}
+
+async function runPolicySimulation() {
+    const selected = Array.from(document.querySelectorAll('.policy-checkbox:checked')).map(cb=>cb.value);
+    const severity = $('severitySelect')?.value || 'moderate';
+    const result = $('simResult');
+    if (!result) return;
+    if (!selected.length) { result.innerHTML = '<div class="empty">Please select at least one tool / 请选择至少一个工具</div>'; return; }
+    result.innerHTML = '<div class="loading"><span class="spinner"></span>Simulating...</div>';
+    try {
+        const d = await fetchJSON('/api/crisis/policy/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({selected_tools:selected, severity})});
+        const sc = {recovery_time:'var(--primary)',gdp_impact:'var(--success)',unemployment_change:'var(--warning)',inflation_impact:'var(--warning)',fiscal_cost:'var(--danger)',confidence_boost:'var(--success)',side_effect_risk:'var(--danger)'};
+        result.innerHTML = `
+        <div class="card">
+            <div class="card-title">Simulation Result / 模拟结果</div>
+            <div class="stats-grid" style="margin-top:8px">${statsGrid([
+                {label:'Recovery Time / 恢复时间',value:`${d.recovery_time_months||0}m`,cls:'up'},
+                {label:'GDP Impact / GDP影响',value:`${d.gdp_impact||0}pp`,cls:(d.gdp_impact||0)>0?'up':'down'},
+                {label:'Unemployment / 失业',value:`${d.unemployment_change||0}pp`,cls:(d.unemployment_change||0)>0?'down':'up'},
+                {label:'Inflation / 通胀',value:`${d.inflation_impact||0}pp`,cls:'warn'},
+                {label:'Fiscal Cost / 财政成本',value:`${d.fiscal_cost||0}%`,cls:'down'},
+                {label:'Confidence / 信心',value:`${d.confidence_boost_score||0}/100`,cls:'up'},
+                {label:'Side Effect Risk / 副作用',value:`${d.side_effect_risk||0}/100`,cls:'down'},
+                {label:'Tools Selected',value:selected.length},
+            ])}</div>
+            ${d.narrative_zh?`<div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px;color:var(--text-secondary);line-height:1.6">${d.narrative_zh}</div>`:''}
+            ${d.side_effects?`<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">${d.side_effects}</div>`:''}
+        </div>`;
+    } catch(e) { result.innerHTML = `<div class="empty">Error: ${e.message}</div>`; }
+}
 
 // ==================== 财报详情与推送 ====================
 async function showFilingDetail(symbol){

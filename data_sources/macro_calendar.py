@@ -232,10 +232,13 @@ def get_macro_calendar(lookahead_days: int = 60) -> dict:
             events_cfg.append({
                 "id": eid,
                 "name": cfg["name"],
+                "name_en": cfg.get("name_en", ""),
                 "importance": cfg["importance"],
                 "schedule_rule": cfg["schedule_rule"],
                 "et_time": cfg.get("et_time", "08:30"),
                 "impact": cfg.get("impact_analysis", {}).get("key_point", ""),
+                "impact_analysis": cfg.get("impact_analysis", {}),
+                "historical_data": cfg.get("historical_data", []),
                 "position_advice": cfg.get("position_advice", {}),
             })
     else:
@@ -258,6 +261,7 @@ def get_macro_calendar(lookahead_days: int = 60) -> dict:
             event = {
                 "event_id": cfg["id"],
                 "name": cfg["name"],
+                "name_en": cfg.get("name_en", ""),
                 "importance": cfg["importance"],
                 "et_time": cfg["et_time"],
                 "event_datetime_bj": dt.strftime("%Y-%m-%d %H:%M"),
@@ -265,6 +269,8 @@ def get_macro_calendar(lookahead_days: int = 60) -> dict:
                 "countdown": _format_countdown(dt - now_bj),
                 "days_until": days_until,
                 "impact": cfg.get("impact", ""),
+                "impact_analysis": cfg.get("impact_analysis", {}),
+                "historical_data": cfg.get("historical_data", []),
                 "source": source,
             }
             pa = cfg.get("position_advice", {})
